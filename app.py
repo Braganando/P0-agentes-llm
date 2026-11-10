@@ -1,82 +1,109 @@
-import os
 import logging
-import argparse
-from google import genai
-from google.genai import types
-from google.genai.errors import APIError
-from dotenv import load_dotenv
+import requests
+from flask import Flask, request, render_template_string
+import os
+import json
 
-# Configuração do Log (Item 16)
-logging.basicConfig(
-    filename='execucao.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
 
-def configurar_api():
-    """Carrega as variáveis de ambiente e inicializa o cliente do Gemini."""
-    load_dotenv()
-    api_key = os.getenv("GEMINI_API_KEY")
-    
-    if not api_key:
-        logging.error("Chave da API não encontrada no arquivo .env.")
-        raise ValueError("Chave da API não encontrada. Verifique seu arquivo .env.")
+# Configurações fornecidas pelo ambiente Devel Lab
+URL_LLM = "https://llm-internal.softex:9001/api/generate"
+MODELO = "qwen3.5:9b-q4_K_M"
+
+# Interface visual básica (HTML)
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Extrator de Despesas</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; }
+        .container { background: #f9f9f9; padding: 20px; border-radius: 8px; border: 1px solid #ddd; }
+        input[type="text"] { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        pre { background: #eee; padding: 15px; border-radius: 4px; overflow-x: auto; }
+        .error { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Extrator de Despesas para Motoristas</h2>
+        <form method="POST">
+            <label for="gasto">Descreva o seu gasto (Ex: "abasteci 50 de etanol"):</label>
+            <input type="text" id="gasto" name="gasto" required>
+            <button type="submit">Processar Despesa</button>
+        </form>
+
+        {% if resultado %}
+            <h3>Resultado Extraído:</h3>
+            <pre>{{ resultado }}</pre>
+        {% endif %}
         
-    return genai.Client(api_key=api_key)
+        {% if erro %}
+            <h3 class="error">Erro de Comunicação:</h3>
+            <pre class="error">{{ erro }}</pre>
+        {% endif %}
+    </div>
+</body>
+</html>
+"""
 
-def extrair_despesas(client, texto_usuario, temperatura):
-    """Envia o texto para o LLM e extrai as entidades em formato JSON."""
-    system_instruction = """
-    Você é um assistente financeiro de um motorista de aplicativo. 
-    Sua tarefa é extrair os gastos relatados no texto e retornar APENAS um objeto JSON válido, sem markdown adicional.
-    O JSON deve conter as chaves: "categoria" ("Combustivel", "Alimentacao" ou "Manutencao"), "valor" (numero decimal), e "descricao".
-    """
-    
-    logging.info(f"Enviando prompt. Temperatura configurada: {temperatura}")
-    try:
-        response = client.models.generate_content(
-            model='gemini-3.5-flash',
-            contents=texto_usuario,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=temperatura,
-            ),
-        )
-        logging.info("Requisição processada com sucesso pelo LLM.")
-        return response.text
+@app.route("/", methods=["GET", "POST"])
+def index():
+    resultado = None
+    erro = None
+
+    if request.method == "POST":
+        texto_usuario = request.form.get("gasto")
+        logging.info(f"Texto recebido: {texto_usuario}")
         
-    except APIError as e:
-        logging.error(f"Erro na API do Gemini: {e}")
-        return f"[Erro na API] Serviço indisponível ou limite excedido. Consulte o arquivo execucao.log para detalhes."
-    except Exception as e:
-        logging.error(f"Erro inesperado: {e}")
-        return f"[Erro Inesperado] Falha ao processar. Consulte o arquivo execucao.log."
+        # O prompt precisa ser claro para o modelo Ollama local
+        prompt = f"""
+        Você é um assistente financeiro. Leia o texto abaixo e extraia a despesa.
+        Retorne APENAS um objeto JSON válido, sem texto antes ou depois.
+        O JSON deve conter exatamente as chaves: 
+        - "categoria" (escolha uma: "Combustivel", "Alimentacao" ou "Manutencao")
+        - "valor" (apenas o numero decimal)
+        - "descricao" (resumo curto do gasto)
+        
+        Texto: {texto_usuario}
+        """
+        
+        payload = {
+            "model": MODELO,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json" # Força o modelo a responder em JSON
+        }
+        
+        try:
+            # Envia a requisição para a IA interna do Devel Lab.
+            # verify=False é usado conforme dica do manual para testes temporários.
+            llm_host = os.getenv("OLLAMA_HOST", "https://llm-internal.softex:9001")
+            resposta = requests.post(llm_host + "/api/generate", json=payload, verify=False, timeout=120)
+            resposta.raise_for_status() 
+            
+            # A API do Ollama retorna o texto dentro da chave 'response'
+            texto_json = resposta.json().get("response", "")
+            
+            # Tenta limpar e reformatar o JSON para ficar bonito na tela
+            try:
+                parsed_json = json.loads(texto_json)
+                resultado = json.dumps(parsed_json, indent=4, ensure_ascii=False)
+                logging.info("Extracao realizada com sucesso.")
+            except json.JSONDecodeError:
+                resultado = texto_json # Se falhar, mostra o texto bruto
+                logging.warning("O modelo nao retornou um JSON perfeito.")
 
-def main():
-    """Gerencia o fluxo de execução e a captura de argumentos de linha de comando."""
-    
-    # Adiciona suporte a parâmetros de linha de comando (Item 15)
-    parser = argparse.ArgumentParser(description="Extrator de Despesas com LLM")
-    parser.add_argument("--temp", type=float, default=0.1, help="Temperatura do modelo LLM (0.0 a 1.0)")
-    args = parser.parse_args()
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Falha de comunicacao com a LLM: {e}")
+            erro = f"Não foi possível conectar à LLM interna no momento. Detalhes: {e}"
 
-    print("--- Extrator de Despesas para Motoristas ---")
-    logging.info("--- Nova execução da aplicação iniciada ---")
-
-    try:
-        client = configurar_api()
-    except ValueError as erro_config:
-        print(f"\nErro de Configuração: {erro_config}")
-        return
-
-    entrada_usuario = input("Digite o seu gasto (ex: 'Abasteci 100 conto de etanol'): ")
-    
-    print(f"\nProcessando com LLM (Temperatura: {args.temp})...")
-    resultado = extrair_despesas(client, entrada_usuario, args.temp)
-    
-    print("\nResultado Extraído:")
-    print(resultado)
-    logging.info("Aplicação finalizada normalmente.\n")
+    return render_template_string(HTML_TEMPLATE, resultado=resultado, erro=erro)
 
 if __name__ == "__main__":
-    main()
+    # O servidor deve escutar em 0.0.0.0 e na porta 8080 conforme exigência do Devel Lab
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
