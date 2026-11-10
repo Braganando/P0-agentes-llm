@@ -66,4 +66,4 @@ Para publicar a aplicação na infraestrutura de avaliação:
 3.  Faça o upload do `.tar` e inicie o container.
 
 ---
-*Projeto desenvolvido por Fernando Silveira como parte dos requisitos de avaliação da Residência em IA (Softex/Univesp).*
+*Projeto desenvolvido por Fernando Silveira como parte dos requisitos de avaliação da Residência em IA (TrendsIA).*
