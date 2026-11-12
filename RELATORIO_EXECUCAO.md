@@ -1,37 +1,122 @@
-# Relatório de Execução e Engenharia — Projeto P0 (Extrator de Despesas com LLM)
+# Relatório de Execução, Engenharia e Troubleshooting — Projeto P0
 
-## 1. Visão Geral e Objetivo
-O **Extrator de Despesas para Motoristas** é uma aplicação web containerizada desenvolvida em Python (Flask) que utiliza Modelos de Linguagem de Grande Porte (LLMs) para converter descrições financeiras em linguagem natural (ex.: *"gastei 25 reais num marmitex e 100 conto de etanol"*) em estruturas JSON padronizadas e prontas para persistência contábil.
-
----
-
-## 2. Arquitetura e Decisões de Engenharia
-
-Para atender aos requisitos de produção do ambiente **Devel Lab**, a arquitetura evoluiu de um script simples para um serviço web resiliente:
-
-1. **Gerenciamento de Processos (PID 1) e Concorrência no Gunicorn:**
-   * **Problema diagnosticado:** O uso do comando `CMD` em formato *shell* no `Dockerfile` alocava o processo principal (`PID 1`) ao interpretador `/bin/sh -c`, impedindo o repasse adequado de sinais POSIX (`SIGTERM`) ao Gunicorn durante o desligamento do container. Além disso, o uso de um único *worker* síncrono (`sync`) causava bloqueio e *timeout* (`Error handling request - no URI read`) quando navegadores abriam conexões TCP de *preconnect* vazias.
-   * **Solução implementada:** Adoção estrita da forma *exec* (`CMD ["gunicorn", ...]`) combinada ao worker `gthread` (`--workers 2 --threads 4 --timeout 180`), garantindo que o Gunicorn assuma diretamente o **PID 1** para *graceful shutdown* e processe múltiplas conexões simultâneas sem bloqueio.
-
-2. **Validação de Segurança SSL/TLS Parametrizada:**
-   * **Problema diagnosticado:** O certificado do servidor interno (`llm-internal.softex:9001`) é assinado por uma Autoridade Certificadora (CA) privada ausente no pacote padrão `ca-certificates` da imagem base `python:3.12-slim`.
-   * **Solução implementada:** Eliminação do `verify=False` fixo em código. A validação TLS foi parametrizada via variável de ambiente `LLM_CA_BUNDLE`: por padrão, mantém a verificação criptográfica ativa (`True`), aceita o caminho de um certificado raiz interno (`/caminho/ca.pem`) em produção e permite o isolamento temporário de falhas em homologação (`false`) sem alterar o código-fonte.
-
-3. **Resiliência a *Cold Start* (Standby) e Alta Demanda (Arquitetura Multi-Modelo):**
-   * **Problema diagnosticado:** O servidor Ollama interno permanece em *standby* e leva de 1 a 2 minutos para inicializar na primeira requisição (causando `504 Gateway Timeout` ou `WORKER TIMEOUT` no Gunicorn padrão de 30s). Já chamadas externas estão sujeitas a picos momentâneos de demanda (`503 Service Unavailable`).
-   * **Solução implementada:** Implementação da camada `consultar_llm()` com política de *retry* automático e *fallback* em cascata utilizando o SDK `google-genai` (`gemini-3.5-flash` -> `gemini-2.5-flash`) e o SDK `openai` apontado para a URL Base `/v1` do Ollama interno (`qwen3.5:9b-q4_K_M`), mantendo os limites de *timeout* do cliente HTTP abaixo do limite do Gunicorn (180s).
-
-4. **Higienização e Validação de Saída JSON:**
-   * Implementação da função `limpar_json()` via expressões regulares para remover blocos de raciocínio intermediário (`<think>...</think>`) e marcações Markdown (` ```json `) antes da validação com `json.loads()`, garantindo a renderização de um JSON estrito e indentado na interface.
+**Projeto:** Extrator de Despesas para Motoristas com Agentes LLM  
+**Autor:** Fernando Braga (`nandobraga.cas@gmail.com`)  
+**Repositório:** `https://github.com/Braganando/P0-agentes-llm`  
+**Versão Final:** `v2.1` (Release `p0-avancado`)
 
 ---
 
-## 3. Registro de Testes e Validação em Ambiente Limpo (Devel Lab)
+## 1. Visão Geral e Objetivo do Projeto
 
-* **Ambiente de Execução:** Portal Devel Lab (`devel-llm.eastus.cloudapp.azure.com`)
-* **Container:** `31-nandobraga.cas` | **Porta exposta:** `8080/tcp`
-* **Entrada de Teste:** `"gastei 25 reais num marmitex e 100 conto de etanol"`
-* **Resultado Obtido (HTTP 200 OK):**
+O **Extrator de Despesas para Motoristas** é uma solução baseada em Modelos de Linguagem de Grande Porte (LLMs) projetada para automatizar o registro contábil de profissionais do volante. A aplicação recebe relatos informais em linguagem natural (ex.: *"gastei 25 reais num marmitex e 100 conto de etanol"*) e realiza a extração estruturada das entidades financeiras, retornando estritamente um objeto JSON padronizado nas categorias `Combustivel`, `Alimentacao` ou `Manutencao`, contendo valores numéricos decimais e descrições concisas.
+
+O desenvolvimento foi estruturado de forma incremental, evoluindo de um script local até uma aplicação web containerizada em Docker de alta resiliência, homologada no ambiente isolado do **Portal Devel Lab**.
+
+---
+
+## 2. Evolução Cronológica e Fases de Desenvolvimento
+
+A linha do tempo de engenharia do projeto foi registrada no controle de versão Git através de três marcos principais (*tags*):
+
+### 2.1. Fase 1 — Concepção e Nível Básico (`tag: p0-basico`)
+* **Escopo Inicial:** Construção do fluxo base de integração com LLM para leitura de entradas textuais e extração estruturada em JSON via engenharia de prompt (*Zero-Shot Prompting* com restrição de esquema).
+* **Configuração de Ambiente:** Estruturação inicial do repositório com isolamento de variáveis sensíveis (`.env` com `python-dotenv`) e definição das dependências no `requirements.txt`.
+* **Seleção e Ajuste de Modelo:** Realização de testes comparativos entre versões da família Gemini (`gemini-1.5-flash` e `gemini-3.8-flash`), estabilizando a escolha no modelo **`gemini-3.5-flash`** em conjunto com o SDK `google-genai` e configuração `response_mime_type="application/json"`.
+
+### 2.2. Fase 2 — Modularização, Logs e Containerização (`tag: p0-intermediario`)
+* **Refatoração e Tratamento de Erros:** O código monolítico inicial foi desacoplado em funções modulares com blocos `try/except` específicos para falhas de comunicação de API e validação sintática do retorno via `json.loads()`.
+* **Observabilidade e Interface:** Adição de rastreamento de execução com a biblioteca `logging` (`INFO`, `WARNING`, `ERROR`) e migração da interface de linha de comando (CLI) para uma aplicação web em **Flask** escutando em `0.0.0.0:8080`, conforme especificação técnica do manual do Devel Lab.
+* **Empacotamento Docker e Higiene de Repositório:**
+  * Criação do `Dockerfile` baseado na imagem oficial enxuta `python:3.12-slim` com servidor WSGI **Gunicorn**.
+  * **Incidente de Limite de Arquivo no GitHub (`GH001: Large files detected`):** Durante o empacotamento da imagem Docker (`nandobragacasgmailcom.tar`, com $474.28\text{ MB}$), o comando `git push` foi rejeitado pelo limite de $100\text{ MB}$ do GitHub.
+  * **Correção Aplicada:** Remoção do binário da árvore de rastreamento (`git rm --cached`), criação do arquivo `.gitignore` (bloqueando `*.tar`, `*.zip`, `.env` e `__pycache__/`) e criação do `.dockerignore` (evitando que artefatos locais e a pasta `.git` inflamem o *build* da imagem).
+
+### 2.3. Fase 3 — Resiliência Multi-Modelo e Adequação Arquitetural (`tag: p0-avancado`)
+* Evolução para a versão **`v2.1`**, incorporando gerenciamento correto de sinais de sistema operacional ($\text{PID } 1$), concorrência multi-thread no Gunicorn, parametrização de certificados SSL/TLS, suporte à camada de compatibilidade OpenAI (`/v1`) do servidor Ollama interno e *fallback* automático entre provedores.
+
+---
+
+## 3. Diagnóstico de Infraestrutura e Troubleshooting no Devel Lab
+
+Durante a implantação e os testes de estresse no **Portal Devel Lab**, a aplicação enfrentou desafios reais de infraestrutura, rede e concorrência. Abaixo estão documentados os seis problemas diagnosticados nos logs do container e as soluções definitivas implementadas:
+
+### 3.1. Falha de Handshake SSL/TLS (`SSLCertVerificationError`) e Segurança em Produção
+* **Sintoma:** Ao tentar conectar ao servidor interno de IA (`https://llm-internal.softex:9001`), o cliente HTTP abortava a conexão por falha na verificação do certificado digital.
+* **Causa Raiz:** O certificado TLS do endpoint interno da instituição é assinado por uma Autoridade Certificadora (CA) privada/interna que não faz parte do pacote padrão `ca-certificates` da imagem `python:3.12-slim`.
+* **Discussão Arquitetural e Solução:** Inicialmente, utilizou-se `verify=False` para isolar a falha de rede e comprovar a conectividade. Contudo, conforme alinhado nas discussões técnicas do fórum da residência, manter `verify=False` fixo em produção desativa a validação de identidade do host e expõe a aplicação a ataques *Man-in-the-Middle (MitM)*.
+  * **Implementação (`obter_config_ssl`):** O código foi refatorado para eliminar o `verify=False` hardcoded, parametrizando a validação através da variável de ambiente `LLM_CA_BUNDLE`:
+    1. Por padrão (`LLM_CA_BUNDLE=true`), mantém a validação criptográfica estrita ativa.
+    2. Aceita o caminho de um certificado raiz interno (`LLM_CA_BUNDLE=/caminho/ca.pem`) para validação completa da cadeia privada.
+    3. Permite o modo de diagnóstico (`LLM_CA_BUNDLE=false`) via variável de ambiente no painel apenas para isolamento de falhas em homologação, sem alterar o código-fonte.
+
+### 3.2. Formato do `CMD` no Dockerfile e Gerenciamento de Sinais ($\text{PID } 1$)
+* **Sintoma:** Na primeira tentativa de *build*, o container falhou ao iniciar com o erro `/bin/sh: 1: [gunicorn,: not found`.
+* **Causa Raiz:** O uso de aspas simples dentro dos colchetes (`CMD ['gunicorn', ...]`) invalidou o parse JSON do Docker, fazendo com que a instrução fosse interpretada literalmente pelo shell `/bin/sh -c`. Uma tentativa intermediária usando a forma *shell* sem colchetes (`CMD gunicorn ...`) funcionou, mas gerou um problema estrutural apontado pela mentoria: na forma *shell*, o processo de **$\text{PID } 1$** passa a ser o `/bin/sh`, deixando o Gunicorn como processo filho. Como o `/bin/sh` não repassa sinais POSIX (como `SIGTERM`) aos filhos, clicar em "Parar" no portal fazia o container ignorar o aviso de parada e terminar abruptamente via `SIGKILL`.
+* **Solução Definitiva:** Adoção estrita da forma *exec* com sintaxe JSON válida (aspas duplas):
+  ```dockerfile
+  CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "4", "--timeout", "180", "app:app"]
+  ```
+  Isso comprovou nos logs (`[1] [INFO] Starting gunicorn 27.0.0`) que o Gunicorn assumiu diretamente o **$\text{PID } 1$** em primeiro plano, garantindo o *graceful shutdown*.
+
+### 3.3. Descompasso de Timeout (`WORKER TIMEOUT`) e *Cold Start* (*Standby*) da LLM
+* **Sintoma:** A interface web exibia `500 Internal Server Error` após exatos $30\text{ segundos}$ na primeira requisição enviada ao container.
+* **Causa Raiz:** Análise dos logs do container revelou `[CRITICAL] WORKER TIMEOUT` no Gunicorn seguido de `504 Gateway Timeout` na resposta do servidor interno. Conforme confirmado pela equipe de mentoria, a LLM do laboratório permanece em modo ***standby*** quando ociosa e leva de **$1\text{ a }2\text{ minutos}$** para concluir sua inicialização (*cold start*) após a primeira chamada de um container. O limite padrão do Gunicorn ($30\text{ s}$) matava o *worker* antes de a IA acordar.
+* **Solução Definitiva:** Ampliação do `--timeout` do Gunicorn para **$180\text{ segundos}$** e configuração de timeouts escalonados no cliente HTTP, garantindo que o Python capture eventuais atrasos de rede antes que o gerenciador de processos derrube o *worker*.
+
+### 3.4. Bloqueio de Worker Síncrono por Preconnect (`Error handling request - no URI read`)
+* **Sintoma:** Mesmo com timeout ampliado, observou-se nos logs o erro `Error handling request (no URI read)` no `sync.py` do Gunicorn, causando queda temporária do worker único (`pid:8`).
+* **Causa Raiz:** Navegadores modernos abrem conexões TCP preventivas (*preconnect*) sem enviar dados HTTP imediatos. Com apenas $1\text{ worker}$ síncrono (`sync`), a conexão vazia bloqueava a fila de atendimento da aplicação.
+* **Solução Definitiva:** Adição dos parâmetros `--workers 2 --threads 4` no `Dockerfile`, migrando automaticamente o Gunicorn para o worker **`gthread`**. Isso permitiu absorver conexões ociosas e pacotes malformados da rede (`bare LF as line terminator`) sem interromper o processamento das despesas.
+
+### 3.5. Picos de Demanda Externa (`HTTP 503`) e Modo *Thinking* do Qwen 3.5 (`Resposta vazia ''`)
+* **Sintoma:** Em testes reais registrados nos logs:
+  1. A chamada rápida ao `gemini-3.5-flash` conectou em $2.4\text{ s}$, mas recebeu `503 Service Unavailable ("This model is currently experiencing high demand")` devido a um pico momentâneo nos servidores da Google.
+  2. O sistema acionou automaticamente o *fallback* para o servidor Ollama interno via SDK compatível da OpenAI (`/v1/chat/completions`), que retornou `HTTP 200 OK` após $\sim 115\text{ s}$, porém com `content` vazio (`''`).
+* **Causa Raiz:** O modelo interno `qwen3.5:9b-q4_K_M` possui geração de raciocínio (*reasoning* / `<think>`) ativa por padrão. Quando chamado pela rota `/v1` com a restrição `response_format={"type": "json_object"}`, o parser interno do Ollama pode esvaziar o campo `content` ou alocar a resposta nos campos extras de *reasoning*.
+* **Solução Definitiva (`v2.1`):**
+  * Adição de política de *retry* imediato no Gemini ($2\text{ tentativas}$ no `gemini-3.5-flash` seguidas de *fallback* para `gemini-2.5-flash`), contornando oscilações `503` em poucos segundos.
+  * Ajuste da chamada OpenAI SDK (`/v1`) para o Ollama interno removendo o bloqueio de `response_format`, inspecionando tanto `message.content` quanto `message.model_extra["reasoning"]` e aplicando a função `limpar_json()` (que remove tags `<think>...</think>`, blocos Markdown ```` ```json ```` e isola o objeto `{...}` via expressão regular).
+
+### 3.6. Conflito de Instância no Portal Devel Lab (`409 Client Error: Conflict`)
+* **Sintoma:** Ao excluir um container e subir uma nova imagem imediatamente no painel Devel Lab, o sistema exibia `409 Conflict: The container name "/31-nandobraga.cas-0" is already in use`.
+* **Solução Operacional:** Identificou-se que o motor Docker subjacente ao portal exige a atualização de estado da sessão (recarregamento da página via `F5` após a exclusão) para liberar o descritor do container anterior antes de um novo *upload*.
+
+---
+
+## 4. Arquitetura Final da Solução (`v2.1`)
+
+```text
+[Navegador do Usuário]
+         │  POST / ( Formulário HTML )
+         ▼
+[Container Docker: python:3.12-slim | Porta 8080]
+  └── PID 1: Gunicorn 27.0 (worker: gthread | 2 workers | 4 threads | timeout: 180s)
+        └── Aplicação Flask (app.py v2.1)
+              ├── 1. Camada Primaria (google-genai SDK):
+              │      ├── Tentativa 1 e 2: gemini-3.5-flash
+              │      └── Tentativa 3 (Fallback rápido): gemini-2.5-flash
+              │
+              ├── 2. Camada de Contingência Local (openai SDK -> /v1):
+              │      └── Endpoint: https://llm-internal.softex:9001/v1 (qwen3.5:9b-q4_K_M)
+              │          └── Validação TLS controlada via LLM_CA_BUNDLE
+              │
+              └── 3. Higienizador e Validador JSON (limpar_json + json.loads):
+                     └── Remove <think>, crases Markdown e indenta JSON final
+```
+
+---
+
+## 5. Registro de Testes e Validação em Produção (Devel Lab)
+
+A versão final foi implantada e validada em um container limpo no ambiente oficial do laboratório:
+
+* **URL de Acesso Público (Devel Lab):** `http://devel-llm.eastus.cloudapp.azure.com:32915`
+* **Container ID / Nome:** `31-nandobraga.cas-0` (`8080/tcp`)
+* **Caso de Teste Executado (Múltiplas Despesas em Linguagem Coloquial):**
+  * **Input:** `"gastei 25 reais num marmitex e 100 conto de etanol"`
+* **Saída Obtida na Interface Web (Validada com Sucesso):**
+
 ```json
 {
     "despesas": [
@@ -47,3 +132,10 @@ Para atender aos requisitos de produção do ambiente **Devel Lab**, a arquitetu
         }
     ]
 }
+```
+
+---
+
+## 6. Conclusão
+
+O ciclo completo de desenvolvimento do Projeto P0 permitiu validar na prática não apenas a engenharia de prompt e a extração estruturada de dados com LLMs, mas principalmente os requisitos críticos de engenharia de software para produção: gerenciamento adequado de processos Linux em containers ($\text{PID } 1$), segurança em transporte TLS/SSL com CAs privadas, dimensionamento de *workers* e *timeouts* diante de LLMs com *cold start* elevado e implementação de *fallbacks* resilientes utilizando SDKs padronizados de mercado (`google-genai` e `openai`).
