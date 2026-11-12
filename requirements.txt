@@ -1,3 +1,7 @@
-Flask
+flask
 gunicorn
 requests
+httpx
+openai
+google-genai
+python-dotenv
