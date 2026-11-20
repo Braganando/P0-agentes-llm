@@ -24,7 +24,7 @@ A solução evoluiu de um script inicial CLI para uma aplicação Web conteineri
 
 1. **Camada de Interface e Sanitização de Entrada:** O usuário insere o relato informal através de um formulário Web servido na porta `8080`. Além da trava HTML (`required`), o back-end aplica higienização via `.strip()` antes de acionar a IA, bloqueando strings vazias ou compostas exclusivamente por espaços em branco.
 
-2. **Processamento do Servidor (WSGI / PID 1):** A aplicação Flask é servida via **Gunicorn** em formato *exec* no `Dockerfile` (assumindo o $\text{PID } 1$ para recebimento limpo de sinais `SIGTERM`), operando com worker multi-thread (`gthread`, 2 workers e 4 threads) e timeout estendido ($180\text{ s}$) para suportar o *cold start* de modelos locais.
+2. **Processamento do Servidor (WSGI / PID 1):** A aplicação Flask é servida via **Gunicorn** em formato *exec* no `Dockerfile` (assumindo o `PID 1` para recebimento limpo de sinais `SIGTERM`), operando com worker multi-thread (`gthread`, 2 workers e 4 threads) e timeout estendido (`180 s`) para suportar o *cold start* de modelos locais.
 
 3. **Integração Resiliente com LLM:**
 
@@ -32,7 +32,7 @@ A solução evoluiu de um script inicial CLI para uma aplicação Web conteineri
 
    * **Provedor Institucional (Contingência):** Servidor Ollama interno do laboratório (`qwen3.5:9b-q4_K_M`) via camada de compatibilidade OpenAI (`/v1`), com verificação de certificados TLS/SSL parametrizável via `LLM_CA_BUNDLE`.
 
-4. **Higienização, Parsing e Tratamento Seguro de Exceções:** Filtro pós-processamento (`limpar_json`) que elimina tags de raciocínio (`<think>...</think>`), crases Markdown e valida a integridade do JSON retornado via `json.loads()`. Falhas inesperadas têm seu *traceback* registrado exclusivamente nos logs internos do servidor (`exc_info=True`), exibindo ao usuário apenas orientações amigáveis sem expor detalhes técnicos de infraestrutura.
+4. **Higienização, Parsing e Tratamento Seguro de Exceções:** Filtro pós-processamento (`limpar_json`) que elimina tags de raciocínio (`<think>...</think>`), crases Markdown e extrai com segurança o último objeto JSON válido via `json.JSONDecoder().raw_decode()`, validando a integridade da saída com `json.loads()`. Falhas inesperadas têm seu *traceback* registrado exclusivamente nos logs internos do servidor (`exc_info=True`), exibindo ao usuário apenas orientações amigáveis sem expor *stack traces* ou credenciais.
 
 ## 🛑 4. Limites do Projeto
 
@@ -57,7 +57,7 @@ Respeitando estritamente o escopo do P0 (manter o projeto enxuto e demonstrar o 
 1. Clone o repositório:
 
 ```bash
-git clone https://github.com/Braganando/P0-agentes-llm.git
+git clone [https://github.com/Braganando/P0-agentes-llm.git](https://github.com/Braganando/P0-agentes-llm.git)
 cd P0-agentes-llm
 ```
 
@@ -96,11 +96,12 @@ GEMINI_API_KEY=sua_chave_de_api_aqui
 LLM_MODEL=gemini-3.5-flash
 
 # --- Provedor Institucional / Ollama Local (Devel Lab) ---
-OLLAMA_HOST=https://llm-internal.softex:9001
+OLLAMA_HOST=[https://llm-internal.softex:9001](https://llm-internal.softex:9001)
 # Controle de Validação SSL (true = validação padrão; false = diagnóstico; ou /caminho/ca.pem)
 LLM_CA_BUNDLE=true
 
 # --- Parâmetros de Execução ---
+# Timeout (em segundos) aplicado às requisições da API Gemini; o fallback Ollama usa 120s
 LLM_TIMEOUT=25
 PORT=8080
 ```
@@ -159,7 +160,7 @@ A aplicação foi validada em dois ambientes complementares — **ambiente local
 
 * **Entrada Fora do Escopo (Sem Valor Financeiro):** Frases conversacionais sem despesas (ex.: *"Olá bom dia tudo bem?"*) são higienizadas e retornam estrutura controlada (`{"despesas": []}`) sem quebrar a interface.
 
-* **Falha de Comunicação, Timeout ou Exceção Genérica:** Indisponibilidades de rede, erros HTTP ou exceções inesperadas acionam o *fallback* automático ou exibem mensagem amigável na tela, registrando o detalhe técnico exclusivamente nos logs do servidor sem gerar erro 500 (*crash*) ou expor *stack traces* ao usuário.
+* **Falha de Comunicação, Timeout ou Exceção Genérica:** Indisponibilidades na API externa acionam o *fallback* automático; falhas de rede, timeouts ou exceções inesperadas exibem mensagem controlada na tela e registram o detalhe técnico exclusivamente nos logs do servidor sem gerar erro 500 (*crash*) ou expor *stack traces* ao usuário.
 
 ## 📋 9. Exemplos de Entrada e Saída
 
@@ -204,15 +205,15 @@ A aplicação foi validada em dois ambientes complementares — **ambiente local
 }
 ```
 
-## ⚠️ 10. Limítacoes Conhecidas
+## ⚠️ 10. Limitações Conhecidas
 
-1. **Cold Start do Modelo Local:** No ambiente compartilhado do Devel Lab, se o modelo Ollama estiver em *standby*, a primeira requisição pode levar de $60\text{ a }120\text{ segundos}$ para responder, sendo necessário manter o timeout do Gunicorn em $180\text{ s}$.
+1. **Cold Start do Modelo Local:** No ambiente compartilhado do Devel Lab, se o modelo Ollama estiver em *standby*, a primeira requisição pode levar de 60 a 120 segundos para responder, sendo necessário manter o timeout do Gunicorn em `180 s`.
 
 2. **Moedas e Câmbio Estrangeiro:** O extrator assume valores em Reais (`R$`). Valores descritos em moedas estrangeiras (dólar, euro) sem indicação explícita de conversão não realizam conversão cambial.
 
 3. **Escopo Fixo de Categorias:** Caso o usuário descreva um gasto fora de `Combustivel`, `Alimentacao` ou `Manutencao` (ex.: *"paguei a parcela do seguro"*), a IA buscará categorizar no item mais próximo ou descartará caso não haja aderência semântica.
 
-4. **Instabilidade de Rede Externa/Interna:** Picos de demanda na API externa (`503 Service Unavailable`) ou timeouts no gateway interno (`504 Gateway Timeout`) são mitigados pelo *fallback* automático implementado na versão `v2.1`.
+4. **Instabilidade de Rede Externa/Interna:** Picos de demanda, limite de cota ou timeouts na API externa (`429 Too Many Requests`, `503 Service Unavailable`, `504 Deadline Exceeded`) são mitigados por retentativas e *fallback* automático (`gemini-3.8-flash` e servidor Ollama interno). Já lentidões ou timeouts no gateway interno (`504 Gateway Timeout`) são mitigados pelos timeouts estendidos (`120 s` no cliente HTTP e `180 s` no Gunicorn) e pelo tratamento amigável de erros (`APITimeoutError` / `APIStatusError`).
 
 5. **Sanitização Downstream para Persistência SQL (OWASP LLM02):** Embora a aplicação bloqueie *Prompt Injection* direto e force o retorno em schema JSON estrito, payloads SQL inseridos deliberadamente como descrição semântica de uma peça ou item são preservados como texto dentro do atributo `"descricao"`. Portanto, integrações futuras que persistam esse JSON em bancos relacionais devem obrigatoriamente utilizar *Prepared Statements* (queries parametrizadas).
 
@@ -224,11 +225,11 @@ O repositório reflete o desenvolvimento incremental exigido nas diretrizes atra
 
 * [`p0-intermediario`](https://github.com/Braganando/P0-agentes-llm/tree/p0-intermediario): Modularização do código, criação do `.gitignore`, tratamento de erros e containerização inicial.
 
-* [`p0-avancado`](https://github.com/Braganando/P0-agentes-llm/tree/p0-avancado): Aplicação Web Flask/Gunicorn (`PID 1`, `gthread`) conteinerizada em Docker, resiliência multi-modelo (`v2.1`), blindagem de sanitização e mascaramento de exceções (`v2.1.1`), validação em ambiente limpo no Devel Lab e [`RELATORIO_EXECUCAO.md`](RELATORIO_EXECUCAO.md) completo.
+* [`p0-avancado`](https://github.com/Braganando/P0-agentes-llm/tree/p0-avancado): Aplicação Web Flask/Gunicorn (`PID 1`, `gthread`) conteinerizada em Docker, resiliência multi-modelo (`v2.1`), blindagem de sanitização, extração segura de JSON, atualização do fallback para `gemini-3.8-flash` e mascaramento de exceções (`v2.1.1`), validação em ambiente limpo no Devel Lab e [`RELATORIO_EXECUCAO.md`](RELATORIO_EXECUCAO.md) completo.
 
 ## 🎥 12. Vídeo de Demonstração
 
-* **Link da Apresentação:** [https://youtu.be/oNYYo4qTydE](https://youtu.be/oNYYo4qTydE) *(Vídeo narrado com duração de 5 minutos, publicado como Não Listado no YouTube com legendas revisadas em Português. Nota: após a gravação, foi aplicado o refinamento `v2.1.1` no back-end para bloqueio de entradas compostas apenas por espaços e mascaramento de exceções genéricas, conforme documentado na Seção 2.4 do `RELATORIO_EXECUCAO.md`).*
+* **Link da Apresentação:** [https://youtu.be/oNYYo4qTydE](https://youtu.be/oNYYo4qTydE) *(Vídeo narrado com duração de 5 minutos, publicado como Não Listado no YouTube com legendas revisadas em Português. Nota: após a gravação, foi aplicado o refinamento `v2.1.1` no back-end para bloqueio de entradas compostas apenas por espaços, mascaramento de exceções genéricas, atualização do modelo reserva para `gemini-3.8-flash`, regra explícita de zero despesas no prompt e extração segura via `limpar_json()`, conforme documentado na Seção 2.4 do `RELATORIO_EXECUCAO.md`).*
 
 ## 📚 13. Referências Técnicas
 
@@ -238,7 +239,7 @@ O repositório reflete o desenvolvimento incremental exigido nas diretrizes atra
 
 * **OpenAI Python SDK & Ollama OpenAI Compatibility:** Documentação da camada de compatibilidade `/v1/chat/completions` utilizada para contingência com o modelo `qwen3.5:9b-q4_K_M`.
 
-* **Gunicorn WSGI HTTP Server:** Boas práticas de execução em containers Docker (*exec form* para $\text{PID } 1$, tratamento de sinais POSIX `SIGTERM` e dimensionamento de workers `gthread`).
+* **Gunicorn WSGI HTTP Server:** Boas práticas de execução em containers Docker (*exec form* para `PID 1`, tratamento de sinais POSIX `SIGTERM` e dimensionamento de workers `gthread`).
 
 * **OWASP Top 10 for Large Language Model Applications:** Diretrizes de mitigação para *LLM01 (Prompt Injection)* e *LLM02 (Insecure Output Handling)*.
 
