@@ -1,9 +1,5 @@
 # 🚀 P0: Extrator de Despesas para Motoristas com LLM
 
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
-[![Docker](https://img.shields.io/badge/docker-24%2B-blue.svg)](https://www.docker.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
 Aplicação desenvolvida como parte da **Residência em Inteligência Artificial**, focada em executar o primeiro ciclo completo de engenharia de software integrada a Modelos de Linguagem de Grande Porte (LLMs).
 
 ## 📌 1. Problema Escolhido e Público-Alvo
@@ -94,7 +90,7 @@ cp .env.example .env
 
 2. Edite o arquivo `.env` configurando o provedor que deseja utilizar:
 
-```ini
+```env
 # --- Provedor Externo (Google Gemini) ---
 GEMINI_API_KEY=sua_chave_de_api_aqui
 LLM_MODEL=gemini-3.5-flash
@@ -243,14 +239,18 @@ O repositório reflete o desenvolvimento incremental exigido nas diretrizes atra
 
 ## 🎥 12. Vídeo de Demonstração
 
-* **Link da Apresentação:** `[VÍDEO EM PRODUÇÃO - LINK SERÁ DISPONIBILIZADO AQUI]` *(Vídeo narrado com duração máxima de 5 minutos, publicado como Não Listado no YouTube com legendas revisadas)*.
+* **Link da Apresentação:** [https://youtu.be/oNYYo4qTydE](https://youtu.be/oNYYo4qTydE) *(Vídeo narrado com duração de 5 minutos, publicado como Não Listado no YouTube com legendas revisadas em Português)*.
 
 ## 📚 13. Referências Técnicas
 
 * **Devel LLM Portal (Instituto Hardware BR / Softex):** Guia de utilização da plataforma, diretrizes de empacotamento de imagens Docker (`.tar`) e integração com o endpoint institucional `llm-internal.softex:9001`.
+
 * **Google GenAI SDK (`google-genai`):** Documentação oficial para chamadas estruturadas (`response_mime_type="application/json"`) e controle de *timeouts* HTTP.
+
 * **OpenAI Python SDK & Ollama OpenAI Compatibility:** Documentação da camada de compatibilidade `/v1/chat/completions` utilizada para contingência com o modelo `qwen3.5:9b-q4_K_M`.
+
 * **Gunicorn WSGI HTTP Server:** Boas práticas de execução em containers Docker (*exec form* para $\text{PID } 1$, tratamento de sinais POSIX `SIGTERM` e dimensionamento de workers `gthread`).
+
 * **OWASP Top 10 for Large Language Model Applications:** Diretrizes de mitigação para *LLM01 (Prompt Injection)* e *LLM02 (Insecure Output Handling)*.
 
 ## 🤖 14. Declaração de Uso de Ferramentas de IA
