@@ -157,7 +157,7 @@ A aplicação foi validada em dois ambientes complementares — **ambiente local
 Com o ambiente virtual ativado e as dependências do `requirements.txt` instaladas, execute no terminal a partir da raiz do repositório:
 
 ```bash
-# Executa a suíte completa de testes unitários locais (12 testes em tests/test_app.py, sem chamadas reais ao LLM)
+# Executa a suíte completa de testes unitários locais (10 funções / 12 casos coletados em tests/test_app.py, sem chamadas reais ao LLM)
 pytest tests/ -v
 ```
 
