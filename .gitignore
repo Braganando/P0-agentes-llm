@@ -1,6 +1,7 @@
-.env 
-venv/ 
-__pycache__/ 
-execucao.log 
+.env
+venv/
+__pycache__/
+.pytest_cache/
+execucao.log
 *.tar
 *.zip
