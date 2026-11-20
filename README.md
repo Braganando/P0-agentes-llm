@@ -20,9 +20,9 @@ A linguagem natural utilizada no cotidiano por motoristas é altamente variável
 
 ## ⚙️ 3. Funcionamento da Solução e Arquitetura
 
-A solução evoluiu de um script inicial CLI para uma aplicação Web conteinerizada robusta e resiliente (`v2.1`):
+A solução evoluiu de um script inicial CLI para uma aplicação Web conteinerizada robusta e resiliente (`v2.1.1`):
 
-1. **Camada de Interface:** O usuário insere o relato informal através de um formulário Web servido na porta `8080`.
+1. **Camada de Interface e Sanitização de Entrada:** O usuário insere o relato informal através de um formulário Web servido na porta `8080`. Além da trava HTML (`required`), o back-end aplica higienização via `.strip()` antes de acionar a IA, bloqueando strings vazias ou compostas exclusivamente por espaços em branco.
 
 2. **Processamento do Servidor (WSGI / PID 1):** A aplicação Flask é servida via **Gunicorn** em formato *exec* no `Dockerfile` (assumindo o $\text{PID } 1$ para recebimento limpo de sinais `SIGTERM`), operando com worker multi-thread (`gthread`, 2 workers e 4 threads) e timeout estendido ($180\text{ s}$) para suportar o *cold start* de modelos locais.
 
@@ -32,13 +32,13 @@ A solução evoluiu de um script inicial CLI para uma aplicação Web conteineri
 
    * **Provedor Institucional (Contingência):** Servidor Ollama interno do laboratório (`qwen3.5:9b-q4_K_M`) via camada de compatibilidade OpenAI (`/v1`), com verificação de certificados TLS/SSL parametrizável via `LLM_CA_BUNDLE`.
 
-4. **Higienização e Parsing:** Filtro pós-processamento (`limpar_json`) que elimina tags de raciocínio (`<think>...</think>`), crases Markdown e valida a integridade do JSON retornado via `json.loads()`.
+4. **Higienização, Parsing e Tratamento Seguro de Exceções:** Filtro pós-processamento (`limpar_json`) que elimina tags de raciocínio (`<think>...</think>`), crases Markdown e valida a integridade do JSON retornado via `json.loads()`. Falhas inesperadas têm seu *traceback* registrado exclusivamente nos logs internos do servidor (`exc_info=True`), exibindo ao usuário apenas orientações amigáveis sem expor detalhes técnicos de infraestrutura.
 
 ## 🛑 4. Limites do Projeto
 
 Respeitando estritamente o escopo do P0 (manter o projeto enxuto e demonstrar o ciclo fundamental):
 
-* **No Escopo:** Entrada textual via formulário Web, orquestração e chamada a um LLM por requisição, extração estrita em três categorias (`Combustivel`, `Alimentacao`, `Manutencao`), tratamento de exceções previsíveis, testes automatizados e conteinerização em Docker.
+* **No Escopo:** Entrada textual via formulário Web, validação e orquestração de chamada a um LLM por requisição, extração estrita em três categorias (`Combustivel`, `Alimentacao`, `Manutencao`), tratamento seguro de exceções previsíveis, validação funcional e conteinerização em Docker.
 
 * **Fora do Escopo:** Persistência em banco de dados SQL/NoSQL, autenticação de usuários e controle de login, agentes autônomos complexos com ferramentas externas (*tool use* / *function calling*), RAG (*Retrieval-Augmented Generation*) e integração com planilhas ou sistemas de gestão externos.
 
@@ -67,8 +67,8 @@ cd P0-agentes-llm
 python3 -m venv venv
 # No Linux/macOS:
 source venv/bin/activate
-# No Windows:
-venv\Scripts\activate
+# No Windows (PowerShell):
+.\venv\Scripts\Activate.ps1
 ```
 
 3. Instale as dependências declaradas:
@@ -147,30 +147,19 @@ docker save -o nandobragacasgmailcom.tar nandobragacasgmailcom:latest
 
    * Inicie o container e acesse pela porta pública mapeada pelo portal.
 
-## 🧪 8. Execução dos Testes e Distinção entre Testes Reais e Simulados
+## 🧪 8. Validação Funcional e Cenários de Teste
 
-O projeto contempla validação em dois níveis distintos:
-
-* **Testes de Lógica Local (Simulados - Sem chamadas reais ao LLM):** Validam o comportamento interno da aplicação, limpeza e sanitização de JSON com tags `<think>`, tratamento de respostas com caracteres inválidos e validação de campos obrigatórios sem consumir créditos ou depender de conexão de rede.
-
-* **Testes de Integração (Chamada Real ao LLM):** Validam a comunicação *end-to-end* com o provedor configurado (detalhados em [`RELATORIO_EXECUCAO.md`](RELATORIO_EXECUCAO.md)).
-
-### Executando os Testes Automatizados
-
-```bash
-# Executa os testes unitários e de lógica local simulada
-pytest tests/ -v
-```
+A aplicação foi validada em dois ambientes complementares — **ambiente local (`localhost:8080`)** para verificação de regras de entrada e tratamento de exceções sem consumo de API, e **ambiente homologado na nuvem (Devel Lab)** para testes de integração *end-to-end* com os provedores de IA (detalhados em [`RELATORIO_EXECUCAO.md`](RELATORIO_EXECUCAO.md)).
 
 ### Cenários de Validação Tratados
 
-* **Entrada Válida:** Gera o JSON esperado com sucesso.
+* **Entrada Válida (Múltiplos ou Únicos Itens):** Gera o objeto JSON estruturado com valores decimais e categorias padronizadas.
 
-* **Entrada Vazia:** O envio é bloqueado tanto pelo front-end (`required`) quanto validado no back-end.
+* **Entrada Vazia ou Apenas Espaços em Branco:** O envio vazio é bloqueado no navegador (`required`) e entradas compostas apenas por espaços (`"   "`) são interceptadas no back-end via `.strip()`, exibindo orientação clara ao usuário sem acionar a API do LLM.
 
-* **Credencial Ausente/Inválida:** A falha é interceptada de forma graciosa, acionando o *fallback* ou retornando mensagem clara ao usuário sem expor credenciais.
+* **Entrada Fora do Escopo (Sem Valor Financeiro):** Frases conversacionais sem despesas (ex.: *"Olá bom dia tudo bem?"*) são higienizadas e retornam estrutura controlada (`{"despesas": []}`) sem quebrar a interface.
 
-* **Falha de Comunicação/Timeout:** O sistema captura a indisponibilidade ou lentidão do servidor de IA e exibe mensagem amigável de recuperação em vez de gerar erro 500 (*crash*).
+* **Falha de Comunicação, Timeout ou Exceção Genérica:** Indisponibilidades de rede, erros HTTP ou exceções inesperadas acionam o *fallback* automático ou exibem mensagem amigável na tela, registrando o detalhe técnico exclusivamente nos logs do servidor sem gerar erro 500 (*crash*) ou expor *stack traces* ao usuário.
 
 ## 📋 9. Exemplos de Entrada e Saída
 
@@ -215,7 +204,7 @@ pytest tests/ -v
 }
 ```
 
-## ⚠️ 10. Limitações Conhecidas
+## ⚠️ 10. Limítacoes Conhecidas
 
 1. **Cold Start do Modelo Local:** No ambiente compartilhado do Devel Lab, se o modelo Ollama estiver em *standby*, a primeira requisição pode levar de $60\text{ a }120\text{ segundos}$ para responder, sendo necessário manter o timeout do Gunicorn em $180\text{ s}$.
 
@@ -235,11 +224,11 @@ O repositório reflete o desenvolvimento incremental exigido nas diretrizes atra
 
 * [`p0-intermediario`](https://github.com/Braganando/P0-agentes-llm/tree/p0-intermediario): Modularização do código, criação do `.gitignore`, tratamento de erros e containerização inicial.
 
-* [`p0-avancado`](https://github.com/Braganando/P0-agentes-llm/tree/p0-avancado): Aplicação Web Flask/Gunicorn (`PID 1`, `gthread`) conteinerizada em Docker, resiliência multi-modelo (`v2.1`), validação em ambiente limpo no Devel Lab e [`RELATORIO_EXECUCAO.md`](RELATORIO_EXECUCAO.md) completo.
+* [`p0-avancado`](https://github.com/Braganando/P0-agentes-llm/tree/p0-avancado): Aplicação Web Flask/Gunicorn (`PID 1`, `gthread`) conteinerizada em Docker, resiliência multi-modelo (`v2.1`), blindagem de sanitização e mascaramento de exceções (`v2.1.1`), validação em ambiente limpo no Devel Lab e [`RELATORIO_EXECUCAO.md`](RELATORIO_EXECUCAO.md) completo.
 
 ## 🎥 12. Vídeo de Demonstração
 
-* **Link da Apresentação:** [https://youtu.be/oNYYo4qTydE](https://youtu.be/oNYYo4qTydE) *(Vídeo narrado com duração de 5 minutos, publicado como Não Listado no YouTube com legendas revisadas em Português)*.
+* **Link da Apresentação:** [https://youtu.be/oNYYo4qTydE](https://youtu.be/oNYYo4qTydE) *(Vídeo narrado com duração de 5 minutos, publicado como Não Listado no YouTube com legendas revisadas em Português. Nota: após a gravação, foi aplicado o refinamento `v2.1.1` no back-end para bloqueio de entradas compostas apenas por espaços e mascaramento de exceções genéricas, conforme documentado na Seção 2.4 do `RELATORIO_EXECUCAO.md`).*
 
 ## 📚 13. Referências Técnicas
 
@@ -255,7 +244,7 @@ O repositório reflete o desenvolvimento incremental exigido nas diretrizes atra
 
 ## 🤖 14. Declaração de Uso de Ferramentas de IA
 
-Este projeto foi desenvolvido por **Fernando Braga** com o apoio do **Google Gemini** como assistente de engenharia de software e *pair programming*. A ferramenta de IA auxiliou na refatoração arquitetural para resiliência multi-modelo, na análise diagnóstica de logs de infraestrutura (tratamento de *cold start*, ajuste de *workers* no Gunicorn e parametrização de validação SSL/TLS) e na revisão e formatação da documentação técnica (`README.md` e `RELATORIO_EXECUCAO.md`).
+Este projeto foi desenvolvido por **Fernando Braga** com o apoio do **Google Gemini** como assistente de engenharia de software e *pair programming*. A ferramenta de IA auxiliou na refatoração arquitetural para resiliência multi-modelo, na análise diagnóstica de logs de infraestrutura (tratamento de *cold start*, ajuste de *workers* no Gunicorn, parametrização de validação SSL/TLS e higienização de entradas/exceções) e na revisão e formatação da documentação técnica (`README.md` e `RELATORIO_EXECUCAO.md`).
 
 A concepção do problema, as decisões arquiteturais, os testes de segurança (*Prompt Injection* e *SQL Injection* de segunda ordem), a construção das imagens Docker e a validação completa em produção no ambiente Devel Lab foram conduzidos, executados e verificados integralmente pelo autor.
 
