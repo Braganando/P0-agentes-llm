@@ -154,7 +154,12 @@ def index():
     erro = None
 
     if request.method == "POST":
-        texto_usuario = request.form.get("gasto")
+        texto_usuario = (request.form.get("gasto") or "").strip()
+        if not texto_usuario:
+            logging.warning("[v2.1] Submissão bloqueada no back-end: entrada vazia ou apenas espaços.")
+            erro = "Por favor, descreva o gasto antes de enviar."
+            return render_template_string(HTML_TEMPLATE, resultado=resultado, erro=erro)
+
         logging.info(f"[v2.1] Texto recebido: {texto_usuario}")
         
         prompt = f"""
@@ -191,8 +196,8 @@ def index():
             logging.error(f"[v2.1] Falha de conexão/SSL: {e}")
             erro = "Falha de conexão ou verificação SSL/TLS com o servidor de IA. Se estiver em teste, defina LLM_CA_BUNDLE=false."
         except Exception as e:
-            logging.error(f"[v2.1] Erro inesperado: {e}")
-            erro = f"Erro ao processar a despesa: {e}"
+            logging.error(f"[v2.1] Erro inesperado ao processar a despesa: {e}", exc_info=True)
+            erro = "Ocorreu um erro inesperado ao comunicar com o serviço. Tente novamente em instantes."
 
     return render_template_string(HTML_TEMPLATE, resultado=resultado, erro=erro)
 
