@@ -57,7 +57,7 @@ Respeitando estritamente o escopo do P0 (manter o projeto enxuto e demonstrar o 
 1. Clone o repositório:
 
 ```bash
-git clone [https://github.com/Braganando/P0-agentes-llm.git](https://github.com/Braganando/P0-agentes-llm.git)
+git clone https://github.com/Braganando/P0-agentes-llm.git
 cd P0-agentes-llm
 ```
 
@@ -96,7 +96,7 @@ GEMINI_API_KEY=sua_chave_de_api_aqui
 LLM_MODEL=gemini-3.5-flash
 
 # --- Provedor Institucional / Ollama Local (Devel Lab) ---
-OLLAMA_HOST=[https://llm-internal.softex:9001](https://llm-internal.softex:9001)
+OLLAMA_HOST=https://llm-internal.softex:9001
 # Controle de Validação SSL (true = validação padrão; false = diagnóstico; ou /caminho/ca.pem)
 LLM_CA_BUNDLE=true
 
@@ -148,9 +148,26 @@ docker save -o nandobragacasgmailcom.tar nandobragacasgmailcom:latest
 
    * Inicie o container e acesse pela porta pública mapeada pelo portal.
 
-## 🧪 8. Validação Funcional e Cenários de Teste
+## 🧪 8. Validação Funcional, Testes Automatizados e Cenários de Teste
 
-A aplicação foi validada em dois ambientes complementares — **ambiente local (`localhost:8080`)** para verificação de regras de entrada e tratamento de exceções sem consumo de API, e **ambiente homologado na nuvem (Devel Lab)** para testes de integração *end-to-end* com os provedores de IA (detalhados em [`RELATORIO_EXECUCAO.md`](RELATORIO_EXECUCAO.md)).
+A aplicação foi validada em dois ambientes complementares — **ambiente local (`localhost:8080` e suíte `pytest`)** para verificação determinística de regras de entrada, higienização de JSON e tratamento de exceções sem consumo de API, e **ambiente homologado na nuvem (Devel Lab)** para testes de integração *end-to-end* com os provedores de IA (detalhados em [`RELATORIO_EXECUCAO.md`](RELATORIO_EXECUCAO.md)).
+
+### Execução dos Testes Unitários Locais
+
+Com o ambiente virtual ativado e as dependências do `requirements.txt` instaladas, execute no terminal a partir da raiz do repositório:
+
+```bash
+# Executa a suíte completa de testes unitários locais (12 testes em tests/test_app.py, sem chamadas reais ao LLM)
+pytest tests/ -v
+```
+
+> **Nota (Windows/PowerShell):** Caso o executável `pytest` não esteja mapeado no `PATH`, utilize `python -m pytest tests/ -v`.
+
+A suíte em `tests/test_app.py` valida automaticamente:
+* Extração e higienização de JSON (`limpar_json`) com blocos `<think>...</think>`, crases Markdown e múltiplos objetos misturados;
+* Parametrização de certificados TLS/SSL (`obter_config_ssl`);
+* Bloqueio *server-side* de entradas vazias ou compostas apenas por espaços em branco sem acionar o LLM;
+* Fluxos simulados (via `unittest.mock.patch`) de extração múltipla, ausência de despesas (`{"despesas": []}`), resposta vazia e mascaramento de exceções genéricas.
 
 ### Cenários de Validação Tratados
 

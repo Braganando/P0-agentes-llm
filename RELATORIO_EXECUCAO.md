@@ -260,13 +260,13 @@ Abaixo está o registro real capturado no painel **Logs do container** (`31-nand
 2026-11-19T21:44:22.419305477Z INFO:root:[v2.1] Texto recebido: gastei 25 reais num marmitex e 100 conto de etanol
 2026-11-19T21:44:22.419358525Z INFO:root:[v2.1] Consultando Gemini (gemini-3.5-flash) - Tentativa 1/3...
 2026-11-19T21:44:22.421623082Z INFO:google_genai.models:AFC is enabled with max remote calls: 10.
-2026-11-19T21:44:23.950261266Z INFO:httpx:HTTP Request: POST [https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent](https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent) "HTTP/1.1 200 OK"
+2026-11-19T21:44:23.950261266Z INFO:httpx:HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent "HTTP/1.1 200 OK"
 2026-11-19T21:44:23.951029755Z INFO:root:[v2.1] Resposta bruta recebida: '{\n  "despesas": [\n    {\n      "categoria": "Alimentacao",\n      "valor": 25.0,\n      "descricao": "marmitex"\n    },\n    {\n      "categoria": "Combustivel",\n      "valor": 100.0,\n      "descricao": "etanol"\n    }\n  ]\n}'
 2026-11-19T21:44:23.951194225Z INFO:root:[v2.1] Extração realizada com sucesso.
 2026-11-19T21:44:46.801233466Z INFO:root:[v2.1] Texto recebido: Olá bom dia tudo bem?
 2026-11-19T21:44:46.801341012Z INFO:root:[v2.1] Consultando Gemini (gemini-3.5-flash) - Tentativa 1/3...
 2026-11-19T21:44:46.802793888Z INFO:google_genai.models:AFC is enabled with max remote calls: 10.
-2026-11-19T21:44:48.037563961Z INFO:httpx:HTTP Request: POST [https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent](https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent) "HTTP/1.1 200 OK"
+2026-11-19T21:44:48.037563961Z INFO:httpx:HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent "HTTP/1.1 200 OK"
 2026-11-19T21:44:48.038136345Z INFO:root:[v2.1] Resposta bruta recebida: '{\n  "despesas": []\n}'
 2026-11-19T21:44:48.038246141Z INFO:root:[v2.1] Extração realizada com sucesso.
 ```
