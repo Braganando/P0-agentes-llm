@@ -42,7 +42,7 @@ A linha do tempo de engenharia do projeto foi registrada no controle de versão 
   * Execução do Gunicorn como processo principal do container ($\text{PID } 1$) via sintaxe *exec* no `Dockerfile`.
   * Concorrência multi-thread com worker `gthread` (`--workers 2 --threads 4`) e timeout estendido ($180\text{ s}$) para absorver o *cold start* do servidor Ollama compartilhado.
   * Parametrização segura da validação de certificados TLS/SSL via variável de ambiente `LLM_CA_BUNDLE`.
-  * Implementação de estratégia de contingência em cascata: retentativa com *backoff* no `gemini-3.5-flash`, *fallback* secundário para `gemini-2.5-flash` e *fallback* institucional para o servidor Ollama interno (`qwen3.5:9b-q4_K_M`) via camada de compatibilidade OpenAI (`/v1`).
+  * Implementação de estratégia de contingência em cascata: retentativa com *backoff* no `gemini-3.5-flash`, *fallback* secundário para `gemini-3.8-flash` e *fallback* institucional para o servidor Ollama interno (`qwen3.5:9b-q4_K_M`) via camada de compatibilidade OpenAI (`/v1`).
 
 ### 2.4. Fase 4 — Hardening Pós-Gravação: Sanitização de Espaços e Mascaramento de Exceções (`v2.1.1`)
 
@@ -50,6 +50,7 @@ A linha do tempo de engenharia do projeto foi registrada no controle de versão 
 * **Refinamentos Aplicados no `app.py`:**
   1. **Validação Server-Side de Strings Vazias ou Compostas Apenas por Espaços:** Embora o campo `<input>` do formulário HTML contasse com o atributo `required`, submissões contendo apenas caracteres de espaço em branco (`"     "`) podiam contornar a validação nativa do navegador. Adicionou-se a sanitização `texto_usuario = (request.form.get("gasto") or "").strip()` logo na entrada da rota `POST`, bloqueando o processamento no back-end com orientação amigável ao usuário e evitando chamadas desnecessárias à API do LLM.
   2. **Mascaramento de Exceções Genéricas na Interface:** O bloco genérico `except Exception as e:` foi refatorado para registrar o *traceback* técnico completo exclusivamente nos logs internos do servidor (`logging.error(..., exc_info=True)`), exibindo na interface Web apenas uma mensagem amigável e controlada ao usuário final, eliminando qualquer risco de vazamento de detalhes internos de socket, rede ou SDK na tela.
+  3. **Atualização do Modelo Reserva e Extração Segura de JSON:** Substituição do modelo reserva descontinuado (`gemini-2.5-flash`, que passou a retornar `404 NOT_FOUND`) por `gemini-3.8-flash`, inclusão explícita da regra de zero despesas no *prompt* (`{"despesas": []}`) e refatoração da função `limpar_json()` utilizando `json.JSONDecoder().raw_decode()` para isolar com segurança o último objeto JSON válido mesmo em respostas com texto de raciocínio misturado.
 
 ---
 
@@ -81,8 +82,8 @@ CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "4", "
 A camada de comunicação com LLMs foi projetada para operar tanto em ambientes com acesso à nuvem pública quanto em redes isoladas (exclusivamente via servidor institucional Ollama):
 
 ```python
-# 1. Prioriza o Gemini (com retentativa para erro 503 de alta demanda)
-modelos_tentativa = [MODELO, MODELO, "gemini-2.5-flash"]
+# 1. Prioriza o Gemini (com retentativa para erro 429/503 de alta demanda)
+modelos_tentativa = [MODELO, MODELO, "gemini-3.8-flash"]
 for idx, mod in enumerate(modelos_tentativa, 1):
     try:
         response = client_gemini.models.generate_content(
@@ -126,15 +127,38 @@ Modelos locais com raciocínio embutido (*reasoning models*) frequentemente emit
 
 ```python
 def limpar_json(texto: str) -> str:
-    """Remove blocos <think>...</think>, textos introdutórios e crases markdown."""
+    """Remove blocos <think>...</think>, markdown e extrai o último objeto JSON válido."""
     if not texto:
         return ""
     texto = re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL).strip()
     texto = re.sub(r"^```(?:json)?\s*|\s*```$", "", texto, flags=re.IGNORECASE).strip()
-    match = re.search(r"\{.*\}", texto, flags=re.DOTALL)
-    if match:
-        return match.group(0).strip()
-    return texto
+
+    try:
+        parsed = json.loads(texto)
+        if isinstance(parsed, dict):
+            return texto
+    except json.JSONDecodeError:
+        pass
+
+    # Varre o texto extraindo objetos JSON de nível superior e mantém o último válido
+    decoder = json.JSONDecoder()
+    ultimo_obj = None
+    idx = 0
+    while idx < len(texto):
+        pos = texto.find("{", idx)
+        if pos == -1:
+            break
+        try:
+            obj, end = decoder.raw_decode(texto, pos)
+            if isinstance(obj, dict):
+                ultimo_obj = obj
+            idx = end
+        except json.JSONDecodeError:
+            idx = pos + 1
+
+    if ultimo_obj is not None:
+        return json.dumps(ultimo_obj, ensure_ascii=False)
+    return ""
 ```
 
 ### 3.5. Sanitização de Entrada e Mascaramento de Erros (`v2.1.1`)
@@ -175,12 +199,12 @@ Durante a implantação e os testes de estresse no **Portal Devel Lab**, a aplic
   2026-11-19T21:42:54.354876450Z WARNING:root:[v2.1] Falha no Gemini (gemini-3.5-flash): 504 DEADLINE_EXCEEDED. {'error': {'code': 504, 'message': 'Deadline expired before operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}
   2026-11-19T21:42:56.357855689Z INFO:root:[v2.1] Consultando Gemini (gemini-3.5-flash) - Tentativa 2/3...
   ```
-* **Solução Aplicada:** A política de retentativas com pausa de $2\text{ segundos}$ absorveu a oscilação transitória na tentativa seguinte sem interromper a experiência do usuário, mantendo o fallback automático para `gemini-2.5-flash` e para o Ollama interno como camadas adicionais de proteção.
+* **Solução Aplicada:** A política de retentativas com pausa de $2\text{ segundos}$ absorveu a oscilação transitória na tentativa seguinte sem interromper a experiência do usuário, mantendo o fallback automático para `gemini-3.8-flash` e para o Ollama interno como camadas adicionais de proteção.
 
 ### 4.4. Incidente 4: Poluição da Saída JSON por Blocos `<think>`
 
 * **Sintoma:** Respostas provenientes de modelos com cadeia de raciocínio incluíam blocos `<think>...</think>` antes do JSON, provocando falha no `json.loads()`.
-* **Solução Aplicada:** Aplicação de expressão regular multi-linha (`re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL)`) seguida da extração estrita do bloco `{...}` na função `limpar_json()`.
+* **Solução Aplicada:** Aplicação de expressão regular multi-linha (`re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL)`) seguida da extração determinística do último objeto JSON válido via `json.JSONDecoder().raw_decode()` na função `limpar_json()`.
 
 ### 4.5. Incidente 5: Ruído de Varredura de Rede nos Logs do Gunicorn
 

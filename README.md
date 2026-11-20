@@ -28,7 +28,7 @@ A solução evoluiu de um script inicial CLI para uma aplicação Web conteineri
 
 3. **Integração Resiliente com LLM:**
 
-   * **Provedor Principal:** Nuvem externa via API Gemini (`gemini-3.5-flash` com retentativa automática e *fallback* rápido para `gemini-2.5-flash`).
+   * **Provedor Principal:** Nuvem externa via API Gemini (`gemini-3.5-flash` com retentativa automática e *fallback* rápido para `gemini-3.8-flash`).
 
    * **Provedor Institucional (Contingência):** Servidor Ollama interno do laboratório (`qwen3.5:9b-q4_K_M`) via camada de compatibilidade OpenAI (`/v1`), com verificação de certificados TLS/SSL parametrizável via `LLM_CA_BUNDLE`.
 
