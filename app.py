@@ -36,29 +36,51 @@ def obter_config_ssl():
 
 
 def limpar_json(texto: str) -> str:
-    """Remove blocos <think>...</think>, textos introdutórios e crases markdown."""
+    """Remove blocos <think>...</think>, markdown e extrai o último objeto JSON válido."""
     if not texto:
         return ""
     texto = re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL).strip()
     texto = re.sub(r"^```(?:json)?\s*|\s*```$", "", texto, flags=re.IGNORECASE).strip()
-    # Se houver texto antes ou depois das chaves, isola apenas o objeto JSON {...}
-    match = re.search(r"\{.*\}", texto, flags=re.DOTALL)
-    if match:
-        return match.group(0).strip()
-    return texto
+
+    try:
+        parsed = json.loads(texto)
+        if isinstance(parsed, dict):
+            return texto
+    except json.JSONDecodeError:
+        pass
+
+    # Varre o texto extraindo objetos JSON de nível superior e mantém o último válido
+    decoder = json.JSONDecoder()
+    ultimo_obj = None
+    idx = 0
+    while idx < len(texto):
+        pos = texto.find("{", idx)
+        if pos == -1:
+            break
+        try:
+            obj, end = decoder.raw_decode(texto, pos)
+            if isinstance(obj, dict):
+                ultimo_obj = obj
+            idx = end
+        except json.JSONDecodeError:
+            idx = pos + 1
+
+    if ultimo_obj is not None:
+        return json.dumps(ultimo_obj, ensure_ascii=False)
+    return ""
 
 
 def consultar_llm(prompt: str) -> str:
     ssl_verify = obter_config_ssl()
 
-    # 1. Prioriza o Gemini (com retentativa para erro 503 de alta demanda)
+    # 1. Prioriza o Gemini (com retentativa para erro 429/503 de alta demanda)
     if GEMINI_API_KEY:
         client_gemini = genai.Client(
             api_key=GEMINI_API_KEY,
             http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT * 1000)
         )
-        # Tenta o modelo principal duas vezes e, se o 503 persistir, usa o gemini-2.5-flash
-        modelos_tentativa = [MODELO, MODELO, "gemini-2.5-flash"]
+        # Tenta o modelo principal duas vezes e, se falhar, aciona o gemini-3.8-flash
+        modelos_tentativa = [MODELO, MODELO, "gemini-3.8-flash"]
         for idx, mod in enumerate(modelos_tentativa, 1):
             try:
                 logging.info(f"[v2.1] Consultando Gemini ({mod}) - Tentativa {idx}/{len(modelos_tentativa)}...")
@@ -164,6 +186,7 @@ def index():
         
         prompt = f"""
         Extraia as despesas do texto abaixo e retorne APENAS um objeto JSON válido.
+        Se não houver nenhuma despesa no texto, retorne exatamente {{"despesas": []}}.
         Se houver uma única despesa, retorne um objeto com as chaves "categoria", "valor" e "descricao".
         Se houver mais de uma despesa, retorne uma chave "despesas" contendo a lista de objetos (cada um com "categoria" sendo "Combustivel", "Alimentacao" ou "Manutencao", "valor" numérico decimal e "descricao").
         
