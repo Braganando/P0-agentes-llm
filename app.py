@@ -182,7 +182,7 @@ def index():
             erro = "Por favor, descreva o gasto antes de enviar."
             return render_template_string(HTML_TEMPLATE, resultado=resultado, erro=erro)
 
-        logging.info(f"[v2.1] Texto recebido: {texto_usuario}")
+        logging.info(f"[v2.1] Requisição recebida | tamanho_entrada={len(texto_usuario)} chars")
         
         prompt = f"""
         Extraia as despesas do texto abaixo e retorne APENAS um objeto JSON válido.
@@ -194,8 +194,12 @@ def index():
         """
         
         try:
+            inicio = time.perf_counter()
             resposta_bruta = consultar_llm(prompt)
-            logging.info(f"[v2.1] Resposta bruta recebida: {resposta_bruta!r}")
+            latencia_s = time.perf_counter() - inicio
+            logging.info(
+                f"[v2.1] Resposta LLM recebida | tamanho_resposta={len(resposta_bruta or '')} chars | latencia={latencia_s:.2f}s"
+            )
             texto_limpo = limpar_json(resposta_bruta)
 
             if not texto_limpo:

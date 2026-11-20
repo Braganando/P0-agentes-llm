@@ -32,13 +32,13 @@ A solução evoluiu de um script inicial CLI para uma aplicação Web conteineri
 
    * **Provedor Institucional (Contingência):** Servidor Ollama interno do laboratório (`qwen3.5:9b-q4_K_M`) via camada de compatibilidade OpenAI (`/v1`), com verificação de certificados TLS/SSL parametrizável via `LLM_CA_BUNDLE`.
 
-4. **Higienização, Parsing e Tratamento Seguro de Exceções:** Filtro pós-processamento (`limpar_json`) que elimina tags de raciocínio (`<think>...</think>`), crases Markdown e extrai com segurança o último objeto JSON válido via `json.JSONDecoder().raw_decode()`, validando a integridade da saída com `json.loads()`. Falhas inesperadas têm seu *traceback* registrado exclusivamente nos logs internos do servidor (`exc_info=True`), exibindo ao usuário apenas orientações amigáveis sem expor *stack traces* ou credenciais.
+4. **Higienização, Parsing, Privacidade nos Logs (LGPD) e Tratamento Seguro de Exceções:** Filtro pós-processamento (`limpar_json`) que elimina tags de raciocínio (`<think>...</think>`), crases Markdown e extrai com segurança o último objeto JSON válido via `json.JSONDecoder().raw_decode()`, validando a integridade da saída com `json.loads()`. Em conformidade com boas práticas de privacidade (LGPD), os logs operacionais registram exclusivamente metadados da requisição (`tamanho_entrada`, `tamanho_resposta`, modelo e `latencia`), omitindo o texto bruto do usuário e o payload literal da resposta. Falhas inesperadas têm seu *traceback* registrado exclusivamente nos logs internos do servidor (`exc_info=True`), exibindo ao usuário apenas orientações amigáveis sem expor *stack traces* ou credenciais.
 
 ## 🛑 4. Limites do Projeto
 
 Respeitando estritamente o escopo do P0 (manter o projeto enxuto e demonstrar o ciclo fundamental):
 
-* **No Escopo:** Entrada textual via formulário Web, validação e orquestração de chamada a um LLM por requisição, extração estrita em três categorias (`Combustivel`, `Alimentacao`, `Manutencao`), tratamento seguro de exceções previsíveis, validação funcional e conteinerização em Docker.
+* **No Escopo:** Entrada textual via formulário Web, validação e orquestração de chamada a um LLM por requisição, extração estrita em três categorias (`Combustivel`, `Alimentacao`, `Manutencao`), logs estruturados por metadados sem exposição de dados sensíveis, tratamento seguro de exceções previsíveis, validação funcional e conteinerização em Docker.
 
 * **Fora do Escopo:** Persistência em banco de dados SQL/NoSQL, autenticação de usuários e controle de login, agentes autônomos complexos com ferramentas externas (*tool use* / *function calling*), RAG (*Retrieval-Augmented Generation*) e integração com planilhas ou sistemas de gestão externos.
 
@@ -57,7 +57,7 @@ Respeitando estritamente o escopo do P0 (manter o projeto enxuto e demonstrar o 
 1. Clone o repositório:
 
 ```bash
-git clone https://github.com/Braganando/P0-agentes-llm.git
+git clone [https://github.com/Braganando/P0-agentes-llm.git](https://github.com/Braganando/P0-agentes-llm.git)
 cd P0-agentes-llm
 ```
 
@@ -96,7 +96,7 @@ GEMINI_API_KEY=sua_chave_de_api_aqui
 LLM_MODEL=gemini-3.5-flash
 
 # --- Provedor Institucional / Ollama Local (Devel Lab) ---
-OLLAMA_HOST=https://llm-internal.softex:9001
+OLLAMA_HOST=[https://llm-internal.softex:9001](https://llm-internal.softex:9001)
 # Controle de Validação SSL (true = validação padrão; false = diagnóstico; ou /caminho/ca.pem)
 LLM_CA_BUNDLE=true
 
@@ -171,7 +171,7 @@ A suíte em `tests/test_app.py` valida automaticamente:
 
 ### Cenários de Validação Tratados
 
-* **Entrada Válida (Múltiplos ou Únicos Itens):** Gera o objeto JSON estruturado com valores decimais e categorias padronizadas.
+* **Entrada Válida (Múltiplos ou Únicos Itens):** Gera o objeto JSON estruturado com valores decimais e categorias padronizadas, registrando nos logs apenas metadados operacionais (`tamanho_entrada`, `tamanho_resposta` e `latencia`).
 
 * **Entrada Vazia ou Apenas Espaços em Branco:** O envio vazio é bloqueado no navegador (`required`) e entradas compostas apenas por espaços (`"   "`) são interceptadas no back-end via `.strip()`, exibindo orientação clara ao usuário sem acionar a API do LLM.
 
@@ -242,15 +242,15 @@ O repositório reflete o desenvolvimento incremental exigido nas diretrizes atra
 
 * [`p0-intermediario`](https://github.com/Braganando/P0-agentes-llm/tree/p0-intermediario): Modularização do código, criação do `.gitignore`, tratamento de erros e containerização inicial.
 
-* [`p0-avancado`](https://github.com/Braganando/P0-agentes-llm/tree/p0-avancado): Aplicação Web Flask/Gunicorn (`PID 1`, `gthread`) conteinerizada em Docker, resiliência multi-modelo (`v2.1`), blindagem de sanitização, extração segura de JSON, atualização do fallback para `gemini-3.8-flash` e mascaramento de exceções (`v2.1.1`), validação em ambiente limpo no Devel Lab e [`RELATORIO_EXECUCAO.md`](RELATORIO_EXECUCAO.md) completo.
+* [`p0-avancado`](https://github.com/Braganando/P0-agentes-llm/tree/p0-avancado): Aplicação Web Flask/Gunicorn (`PID 1`, `gthread`) conteinerizada em Docker, resiliência multi-modelo (`v2.1`), blindagem de sanitização, extração segura de JSON, atualização do fallback para `gemini-3.8-flash`, mascaramento de exceções, logs operacionais por metadados em conformidade com LGPD e suíte de testes unitários `pytest` (`v2.1.1`), validação em ambiente limpo no Devel Lab e [`RELATORIO_EXECUCAO.md`](RELATORIO_EXECUCAO.md) completo.
 
 ## 🎥 12. Vídeo de Demonstração
 
-* **Link da Apresentação:** [https://youtu.be/oNYYo4qTydE](https://youtu.be/oNYYo4qTydE) *(Vídeo narrado com duração de 5 minutos, publicado como Não Listado no YouTube com legendas revisadas em Português. Nota: após a gravação, foi aplicado o refinamento `v2.1.1` no back-end para bloqueio de entradas compostas apenas por espaços, mascaramento de exceções genéricas, atualização do modelo reserva para `gemini-3.8-flash`, regra explícita de zero despesas no prompt e extração segura via `limpar_json()`, conforme documentado na Seção 2.4 do `RELATORIO_EXECUCAO.md`).*
+* **Link da Apresentação:** [https://youtu.be/oNYYo4qTydE](https://youtu.be/oNYYo4qTydE) *(Vídeo narrado com duração de 5 minutos, publicado como Não Listado no YouTube com legendas revisadas em Português. Nota: após a gravação, foi aplicado o refinamento `v2.1.1` no back-end para bloqueio de entradas compostas apenas por espaços, mascaramento de exceções genéricas, atualização do modelo reserva para `gemini-3.8-flash`, regra explícita de zero despesas no prompt, extração segura via `limpar_json()`, adequação dos logs à LGPD com registro exclusivo de metadados — tamanho de entrada, tamanho de resposta e latência, sem texto bruto — e inclusão da suíte `pytest`, conforme documentado na Seção 2.4 do `RELATORIO_EXECUCAO.md`).*
 
 ## 📚 13. Referências Técnicas
 
-* **Devel LLM Portal (Instituto Hardware BR / Softex):** Guia de utilização da plataforma, diretrizes de empacotamento de imagens Docker (`.tar`) e integração com o endpoint institucional `llm-internal.softex:9001`.
+* **Devel LLM Portal (Instituto Hardware BR / Softex):** Guia de utilização da plataforma, diretrizes de empacotamento de imagens Docker (`.tar`), boas práticas de privacidade em logs (LGPD) e integração com o endpoint institucional `llm-internal.softex:9001`.
 
 * **Google GenAI SDK (`google-genai`):** Documentação oficial para chamadas estruturadas (`response_mime_type="application/json"`) e controle de *timeouts* HTTP.
 
@@ -262,7 +262,7 @@ O repositório reflete o desenvolvimento incremental exigido nas diretrizes atra
 
 ## 🤖 14. Declaração de Uso de Ferramentas de IA
 
-Este projeto foi desenvolvido por **Fernando Braga** com o apoio do **Google Gemini** como assistente de engenharia de software e *pair programming*. A ferramenta de IA auxiliou na refatoração arquitetural para resiliência multi-modelo, na análise diagnóstica de logs de infraestrutura (tratamento de *cold start*, ajuste de *workers* no Gunicorn, parametrização de validação SSL/TLS e higienização de entradas/exceções) e na revisão e formatação da documentação técnica (`README.md` e `RELATORIO_EXECUCAO.md`).
+Este projeto foi desenvolvido por **Fernando Braga** com o apoio do **Google Gemini** como assistente de engenharia de software e *pair programming*. A ferramenta de IA auxiliou na refatoração arquitetural para resiliência multi-modelo, na análise diagnóstica de logs de infraestrutura (tratamento de *cold start*, ajuste de *workers* no Gunicorn, parametrização de validação SSL/TLS, sanitização de logs conforme LGPD e higienização de entradas/exceções) e na revisão e formatação da documentação técnica (`README.md` e `RELATORIO_EXECUCAO.md`).
 
 A concepção do problema, as decisões arquiteturais, os testes de segurança (*Prompt Injection* e *SQL Injection* de segunda ordem), a construção das imagens Docker e a validação completa em produção no ambiente Devel Lab foram conduzidos, executados e verificados integralmente pelo autor.
 
